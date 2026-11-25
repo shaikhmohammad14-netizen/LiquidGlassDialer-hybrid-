@@ -1,21 +1,23 @@
 
-name: Android Build
+name: Liquid Glass Dialer V5 Build
 
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build Liquid Glass Dialer APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Java 17
@@ -24,18 +26,70 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Extract V5 ZIP if needed
+        shell: bash
+        run: |
+          if [ -f "LiquidGlassDialer-iOS-Hybrid-v5.zip" ]; then
+            mkdir -p extracted
+            unzip -oq LiquidGlassDialer-iOS-Hybrid-v5.zip -d extracted
+          fi
+
+      - name: Locate Android project
+        id: project
+        shell: bash
+        run: |
+          SETTINGS=$(find . \
+            -not -path './.git/*' \
+            -not -path './.gradle/*' \
+            -type f \
+            -name settings.gradle \
+            | head -n 1)
+
+          if [ -z "$SETTINGS" ]; then
+            SETTINGS=$(find . \
+              -not -path './.git/*' \
+              -type f \
+              -name settings.gradle.kts \
+              | head -n 1)
+          fi
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: Android settings.gradle not found"
+            find . -maxdepth 4 -type f | head -150
+            exit 1
+          fi
+
+          DIR=$(dirname "$SETTINGS")
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project found: $DIR"
+
       - name: Install Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Build debug APK
+      - name: Build APK
+        working-directory: ${{ steps.project.outputs.dir }}
         run: gradle --no-daemon assembleDebug
 
-      - name: Upload debug APK
+      - name: Locate APK
+        id: apk
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: |
+          APK=$(find app/build/outputs/apk/debug \
+            -type f -name '*.apk' | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "APK was not generated"
+            exit 1
+          fi
+
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: LiquidGlassDialer-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: LiquidGlassDialer-iOS-Hybrid-v5
+          path: ${{ steps.project.outputs.dir }}/${{ steps.apk.outputs.path }}
           if-no-files-found: error
           retention-days: 14
